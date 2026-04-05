@@ -45,6 +45,8 @@ class CycleStats:
     op_breakdown: str
     has_kernel_op: bool
     has_effective_data: bool
+    has_load: bool
+    has_store: bool
 
 
 @dataclass
@@ -108,6 +110,8 @@ def summarize_cycle(record: dict) -> CycleStats:
     has_kernel_op = any(op not in CONTROL_LIKE_OPS for op in ops)
 
     has_effective_data = False
+    has_load = any(op == "(ld)" for op in ops)
+    has_store = any(op == "(st)" for op in ops)
     for tile in tiles:
         op = tile["fu"]["operation_symbol"]
         if op in CONTROL_LIKE_OPS:
@@ -134,6 +138,8 @@ def summarize_cycle(record: dict) -> CycleStats:
         op_breakdown=op_breakdown,
         has_kernel_op=has_kernel_op,
         has_effective_data=has_effective_data,
+        has_load=has_load,
+        has_store=has_store,
     )
 
 
@@ -218,16 +224,14 @@ def build_coarse_stages(log_name: str, cycles: list[CycleStats]) -> list[CoarseS
     if not cycles:
         return []
 
-    rows: list[CoarseStage] = []
-
     effective_cycles = [c for c in cycles if c.has_effective_data]
     if not effective_cycles:
         return [
             CoarseStage(
                 log_name=log_name,
                 stage_name="no_effective_data",
-                start_cycle=cycles[0].cycle,
-                end_cycle=cycles[-1].cycle,
+                start_cycle=0,
+                end_cycle=0,
                 total_cycles=0,
                 note="No effective-data cycle found",
             )
@@ -235,59 +239,34 @@ def build_coarse_stages(log_name: str, cycles: list[CycleStats]) -> list[CoarseS
 
     first_eff = effective_cycles[0].cycle
     last_eff = effective_cycles[-1].cycle
-    rows.append(
-        CoarseStage(
-            log_name=log_name,
-            stage_name="effective_data_full_window",
-            start_cycle=first_eff,
-            end_cycle=last_eff,
-            total_cycles=last_eff - first_eff + 1,
-            note="From first effective-data instruction to last effective-data instruction",
-        )
-    )
-
-    # Metric A: remove empty/bubble cycles inside full window (non-contiguous counting).
-    effective_only = [c for c in effective_cycles if first_eff <= c.cycle <= last_eff]
-    rows.append(
-        CoarseStage(
-            log_name=log_name,
-            stage_name="effective_data_active_cycles",
-            start_cycle=effective_only[0].cycle,
-            end_cycle=effective_only[-1].cycle,
-            total_cycles=len(effective_only),
-            note="Count only cycles that have effective data (bubble cycles removed)",
-        )
-    )
+    full_cycles = last_eff - first_eff + 1
 
     limit = infer_trunc_times_limit(log_name)
+    trunc_start = infer_trunc_start_cycle(log_name)
+    if trunc_start is None:
+        trunc_start = first_eff
+
+    trunc_end = None
+    trunc_cycles = 0
     if limit is not None:
-        trunc_start = infer_trunc_start_cycle(log_name)
-        if trunc_start is None:
-            trunc_start = first_eff
         truncated = [c for c in cycles if c.cycle >= trunc_start and c.global_times <= limit]
         if truncated:
-            rows.append(
-                CoarseStage(
-                    log_name=log_name,
-                    stage_name="effective_data_truncated_window",
-                    start_cycle=truncated[0].cycle,
-                    end_cycle=truncated[-1].cycle,
-                    total_cycles=len(truncated),
-                    note=f"Window truncation by global_times <= {limit}",
-                )
-            )
-            rows.append(
-                CoarseStage(
-                    log_name=log_name,
-                    stage_name="truncated_out_tail",
-                    start_cycle=truncated[-1].cycle + 1,
-                    end_cycle=last_eff,
-                    total_cycles=last_eff - truncated[-1].cycle,
-                    note="Tail cycles excluded by truncation window",
-                )
-            )
+            trunc_end = truncated[-1].cycle
+            trunc_cycles = len(truncated)
 
-    return rows
+    if trunc_end is None:
+        trunc_end = last_eff
+        trunc_cycles = max(0, trunc_end - trunc_start + 1)
+
+    warmup_cfg_cycles = max(0, trunc_start)
+    tail_cycles = max(0, last_eff - trunc_end)
+
+    return [
+        CoarseStage(log_name, "full_window_cycles", first_eff, last_eff, full_cycles, "First effective-data cycle to last effective-data cycle"),
+        CoarseStage(log_name, "warmup_and_configuration_cycles", 0, max(0, trunc_start - 1), warmup_cfg_cycles, "Cycles before truncated execution window"),
+        CoarseStage(log_name, "truncated_execution_cycles", trunc_start, trunc_end, trunc_cycles, "Main execution window after truncation"),
+        CoarseStage(log_name, "tail_cycles", trunc_end + 1, last_eff, tail_cycles, "Cycles after truncated execution window"),
+    ]
 
 
 def write_csv(path: Path, segments: list[Segment]) -> None:
@@ -317,11 +296,22 @@ def write_csv(path: Path, segments: list[Segment]) -> None:
 
 def write_coarse_summary(path: Path, rows: list[CoarseStage]) -> None:
     fieldnames = ["log_name", "stage_name", "start_cycle", "end_cycle", "total_cycles", "note"]
+    grouped: dict[str, list[CoarseStage]] = {}
+    order: list[str] = []
+    for r in rows:
+        if r.log_name not in grouped:
+            grouped[r.log_name] = []
+            order.append(r.log_name)
+        grouped[r.log_name].append(r)
+
     with path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        for row in rows:
-            writer.writerow(row.__dict__)
+        for idx, name in enumerate(order):
+            for row in grouped[name]:
+                writer.writerow(row.__dict__)
+            if idx != len(order) - 1:
+                writer.writerow({k: "" for k in fieldnames})
 
 
 def main() -> None:
