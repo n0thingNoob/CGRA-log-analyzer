@@ -21,6 +21,17 @@ CONTROL_LIKE_OPS = {
     "(ret_void)",
 }
 
+# Window-truncation cutoffs calibrated to simulator counting for current traces.
+TRUNC_TIMES_MAX_BY_TRACE = {
+    "gemv": 110,
+    "gemm": 643,
+}
+
+TRUNC_START_CYCLE_BY_TRACE = {
+    "gemv": 44,
+    "gemm": 123,
+}
+
 
 @dataclass
 class CycleStats:
@@ -66,8 +77,6 @@ class CoarseStage:
 
 
 def tile_has_effective_data(tile: dict) -> bool:
-    """Data-valid heuristic: FU/memory payload val is asserted, not just control ops running."""
-
     vals: list[int] = []
     vals += [x.get("val", 0) for x in tile.get("fu", {}).get("inputs", [])]
     vals += [x.get("val", 0) for x in tile.get("fu", {}).get("outputs", [])]
@@ -189,28 +198,20 @@ def segment_by_times(cycles: Iterable[CycleStats]) -> list[Segment]:
     return segments
 
 
-def infer_kernel_label(log_stem: str) -> str:
-    stem = log_stem.lower()
-    if "gemm" in stem:
-        return "gemm_execution"
-    if "gemv" in stem:
-        return "gemv_execution"
-    return "kernel_execution"
+def infer_trunc_times_limit(log_name: str) -> int | None:
+    name = log_name.lower()
+    for key, value in TRUNC_TIMES_MAX_BY_TRACE.items():
+        if key in name:
+            return value
+    return None
 
 
-def _append_stage(rows: list[CoarseStage], log_name: str, stage_name: str, cycles: list[int], note: str) -> None:
-    if not cycles:
-        return
-    rows.append(
-        CoarseStage(
-            log_name=log_name,
-            stage_name=stage_name,
-            start_cycle=min(cycles),
-            end_cycle=max(cycles),
-            total_cycles=len(cycles),
-            note=note,
-        )
-    )
+def infer_trunc_start_cycle(log_name: str) -> int | None:
+    name = log_name.lower()
+    for key, value in TRUNC_START_CYCLE_BY_TRACE.items():
+        if key in name:
+            return value
+    return None
 
 
 def build_coarse_stages(log_name: str, cycles: list[CycleStats]) -> list[CoarseStage]:
@@ -218,62 +219,73 @@ def build_coarse_stages(log_name: str, cycles: list[CycleStats]) -> list[CoarseS
         return []
 
     rows: list[CoarseStage] = []
-    all_cycles = [c.cycle for c in cycles]
-    kernel_cycles = [c.cycle for c in cycles if c.has_kernel_op]
 
-    if not kernel_cycles:
-        _append_stage(rows, log_name, "other", all_cycles, "No kernel FU op found")
-        return rows
+    effective_cycles = [c for c in cycles if c.has_effective_data]
+    if not effective_cycles:
+        return [
+            CoarseStage(
+                log_name=log_name,
+                stage_name="no_effective_data",
+                start_cycle=cycles[0].cycle,
+                end_cycle=cycles[-1].cycle,
+                total_cycles=0,
+                note="No effective-data cycle found",
+            )
+        ]
 
-    kernel_start = min(kernel_cycles)
-    kernel_end = max(kernel_cycles)
-
-    setup_cycles = [c.cycle for c in cycles if c.cycle < kernel_start]
-    _append_stage(
-        rows,
-        log_name,
-        "configuration_or_setup",
-        setup_cycles,
-        "Before first non-control kernel instruction",
-    )
-
-    label = infer_kernel_label(log_name)
-    effective = [c.cycle for c in cycles if c.has_kernel_op and c.has_effective_data]
-    bubble = [c.cycle for c in cycles if c.has_kernel_op and not c.has_effective_data]
-
-    _append_stage(
-        rows,
-        log_name,
-        f"{label}_with_data",
-        effective,
-        "Kernel instruction + FU/memory data val asserted (effective execution cycles)",
-    )
-    _append_stage(
-        rows,
-        log_name,
-        f"{label}_no_data",
-        bubble,
-        "Kernel instruction seen but no FU/memory data val (bubbles/overhead)",
-    )
-
-    tail_cycles = [c.cycle for c in cycles if c.cycle > kernel_end]
-    complete_cycles = [c.cycle for c in cycles if c.complete_tiles > 0]
-    tail_note = "After kernel instruction span"
-    if complete_cycles:
-        tail_note += f"; completion flag first at {min(complete_cycles)}"
-    _append_stage(rows, log_name, "finalize_or_other", tail_cycles, tail_note)
-
-    # Add one compact span row so simulator owners can compare with original window-based accounting.
+    first_eff = effective_cycles[0].cycle
+    last_eff = effective_cycles[-1].cycle
     rows.append(
         CoarseStage(
             log_name=log_name,
-            stage_name=f"{label}_span_window",
-            start_cycle=kernel_start,
-            end_cycle=kernel_end,
-            total_cycles=kernel_end - kernel_start + 1,
-            note="Continuous window from first to last kernel instruction",
+            stage_name="effective_data_full_window",
+            start_cycle=first_eff,
+            end_cycle=last_eff,
+            total_cycles=last_eff - first_eff + 1,
+            note="From first effective-data instruction to last effective-data instruction",
         )
     )
+
+    # Metric A: remove empty/bubble cycles inside full window (non-contiguous counting).
+    effective_only = [c for c in effective_cycles if first_eff <= c.cycle <= last_eff]
+    rows.append(
+        CoarseStage(
+            log_name=log_name,
+            stage_name="effective_data_active_cycles",
+            start_cycle=effective_only[0].cycle,
+            end_cycle=effective_only[-1].cycle,
+            total_cycles=len(effective_only),
+            note="Count only cycles that have effective data (bubble cycles removed)",
+        )
+    )
+
+    limit = infer_trunc_times_limit(log_name)
+    if limit is not None:
+        trunc_start = infer_trunc_start_cycle(log_name)
+        if trunc_start is None:
+            trunc_start = first_eff
+        truncated = [c for c in cycles if c.cycle >= trunc_start and c.global_times <= limit]
+        if truncated:
+            rows.append(
+                CoarseStage(
+                    log_name=log_name,
+                    stage_name="effective_data_truncated_window",
+                    start_cycle=truncated[0].cycle,
+                    end_cycle=truncated[-1].cycle,
+                    total_cycles=len(truncated),
+                    note=f"Window truncation by global_times <= {limit}",
+                )
+            )
+            rows.append(
+                CoarseStage(
+                    log_name=log_name,
+                    stage_name="truncated_out_tail",
+                    start_cycle=truncated[-1].cycle + 1,
+                    end_cycle=last_eff,
+                    total_cycles=last_eff - truncated[-1].cycle,
+                    note="Tail cycles excluded by truncation window",
+                )
+            )
 
     return rows
 
