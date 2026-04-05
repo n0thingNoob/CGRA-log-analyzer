@@ -1,0 +1,9 @@
+log_name,stage_name,start_cycle,end_cycle,total_cycles,note
+trace_gemv_4x4_Mesh,effective_data_full_window,44,443,400,From first effective-data instruction to last effective-data instruction
+trace_gemv_4x4_Mesh,effective_data_active_cycles,44,443,312,Count only cycles that have effective data (bubble cycles removed)
+trace_gemv_4x4_Mesh,effective_data_truncated_window,44,320,277,Window truncation by global_times <= 110
+trace_gemv_4x4_Mesh,truncated_out_tail,321,443,123,Tail cycles excluded by truncation window
+trace_gemm_4x4_Mesh,effective_data_full_window,121,2026,1906,From first effective-data instruction to last effective-data instruction
+trace_gemm_4x4_Mesh,effective_data_active_cycles,121,2026,1718,Count only cycles that have effective data (bubble cycles removed)
+trace_gemm_4x4_Mesh,effective_data_truncated_window,123,1317,1195,Window truncation by global_times <= 643
+trace_gemm_4x4_Mesh,truncated_out_tail,1318,2026,709,Tail cycles excluded by truncation window
