@@ -1,0 +1,9 @@
+log_name,stage_name,start_cycle,end_cycle,total_cycles,note
+trace_gemv_4x4_Mesh,configuration_or_setup,0,43,44,Before first non-control kernel instruction
+trace_gemv_4x4_Mesh,gemv_execution_with_data,44,443,312,Kernel instruction + FU/memory data val asserted (effective execution cycles)
+trace_gemv_4x4_Mesh,gemv_execution_no_data,63,149,58,Kernel instruction seen but no FU/memory data val (bubbles/overhead)
+trace_gemv_4x4_Mesh,gemv_execution_span_window,44,443,400,Continuous window from first to last kernel instruction
+trace_gemm_4x4_Mesh,configuration_or_setup,0,120,121,Before first non-control kernel instruction
+trace_gemm_4x4_Mesh,gemm_execution_with_data,121,2026,1718,Kernel instruction + FU/memory data val asserted (effective execution cycles)
+trace_gemm_4x4_Mesh,gemm_execution_no_data,149,149,1,Kernel instruction seen but no FU/memory data val (bubbles/overhead)
+trace_gemm_4x4_Mesh,gemm_execution_span_window,121,2026,1906,Continuous window from first to last kernel instruction
