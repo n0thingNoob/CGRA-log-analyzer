@@ -1,0 +1,10 @@
+log_name,stage_name,start_cycle,end_cycle,total_cycles,note
+trace_gemv_4x4_Mesh,full_window_cycles,44,443,400,First effective-data cycle to last effective-data cycle
+trace_gemv_4x4_Mesh,warmup_and_configuration_cycles,0,43,44,Cycles before truncated execution window
+trace_gemv_4x4_Mesh,truncated_execution_cycles,44,320,277,Main execution window after truncation
+trace_gemv_4x4_Mesh,tail_cycles,321,443,123,Cycles after truncated execution window
+,,,,,
+trace_gemm_4x4_Mesh,full_window_cycles,121,2026,1906,First effective-data cycle to last effective-data cycle
+trace_gemm_4x4_Mesh,warmup_and_configuration_cycles,0,122,123,Cycles before truncated execution window
+trace_gemm_4x4_Mesh,truncated_execution_cycles,123,1317,1195,Main execution window after truncation
+trace_gemm_4x4_Mesh,tail_cycles,1318,2026,709,Cycles after truncated execution window
