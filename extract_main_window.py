@@ -10,8 +10,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-IDLE_OPS = {"(start)", "(NAH)", "(grant_pred)", "(grant_once)", "(grant_once')", "(ret_void)"}
-ARITH_OPS = {"(*)", "(+)", "(&)", "(+')"}
+IDLE_OPS = {"(start)", "(grant_pred)", "(grant_once)", "(grant_once')", "(ret_void)"}
+BASE_ARITH_OPS = {"(*)", "(+)", "(&)", "(+')"}
 
 DEFAULT_II_BY_KERNEL = {
     "gemv": 11,
@@ -44,6 +44,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lookback-ii-multiple", type=int, default=8)
     p.add_argument("--manual-start", type=int, default=None)
     p.add_argument("--manual-end", type=int, default=None)
+    p.add_argument("--extra-arith-ops", default="", help="Comma-separated extra compute ops, e.g. '(xor),(max)'")
     return p.parse_args()
 
 
@@ -84,21 +85,21 @@ def valid_event_from_tile(tile: Dict[str, Any]) -> Optional[Tuple[str, Optional[
     return None
 
 
-def classify_kind(op: str) -> str:
-    if op in {"(ld)", "(st)"} or op in ARITH_OPS:
+def classify_kind(op: str, arith_ops: set[str]) -> str:
+    if op in {"(ld)", "(st)"} or op in arith_ops:
         return "math"
     return "ctrl"
 
 
-def allow_event(op: str, mode: str) -> bool:
+def allow_event(op: str, mode: str, arith_ops: set[str]) -> bool:
     if op in IDLE_OPS:
         return False
     if mode == "math":
-        return op in {"(ld)", "(st)"} or op in ARITH_OPS
+        return op in {"(ld)", "(st)"} or op in arith_ops
     return True
 
 
-def extract_events(trace_path: str, mode: str) -> List[Event]:
+def extract_events(trace_path: str, mode: str, arith_ops: set[str]) -> List[Event]:
     events: List[Event] = []
     with open(trace_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -106,7 +107,7 @@ def extract_events(trace_path: str, mode: str) -> List[Event]:
             cycle = rec["cycle"]
             for tile in rec["tiles"]:
                 op = tile["fu"]["operation_symbol"]
-                if not allow_event(op, mode):
+                if not allow_event(op, mode, arith_ops):
                     continue
                 valid = valid_event_from_tile(tile)
                 if valid is None:
@@ -119,7 +120,7 @@ def extract_events(trace_path: str, mode: str) -> List[Event]:
                         row=int(tile["row"]),
                         col=int(tile["col"]),
                         op=op,
-                        kind=classify_kind(op),
+                        kind=classify_kind(op, arith_ops),
                         source=source,
                         payload=payload,
                         predicate=predicate,
@@ -132,10 +133,12 @@ def get_cycles(events: Sequence[Event], op: str) -> List[int]:
     return [e.cycle for e in events if e.op == op]
 
 
-def find_steady_anchor_cycles(events: Sequence[Event], compiled_ii: int, gap_slack: int, steady_run: int) -> int:
+def find_steady_anchor_cycles(
+    events: Sequence[Event], compiled_ii: int, gap_slack: int, steady_run: int, arith_ops: set[str]
+) -> int:
     # pick densest arithmetic op as cadence anchor
     best = []
-    for op in ["(*)", "(&)", "(+)", "(+')"]:
+    for op in sorted(arith_ops):
         cyc = sorted(get_cycles(events, op))
         if len(cyc) >= steady_run + 1:
             best.append((len(cyc), cyc))
@@ -201,14 +204,16 @@ def main() -> None:
     args = parse_args()
     kernel = infer_kernel(args.trace, args.kernel)
     compiled_ii = args.compiled_ii if args.compiled_ii is not None else DEFAULT_II_BY_KERNEL[kernel]
+    extra = {x.strip() for x in args.extra_arith_ops.split(",") if x.strip()}
+    arith_ops = set(BASE_ARITH_OPS) | extra
 
     os.makedirs(args.out_dir, exist_ok=True)
-    exec_events = extract_events(args.trace, mode="exec")
+    exec_events = extract_events(args.trace, mode="exec", arith_ops=arith_ops)
     if not exec_events:
         raise RuntimeError("No valid execution events extracted.")
-    math_events = extract_events(args.trace, mode="math")
+    math_events = extract_events(args.trace, mode="math", arith_ops=arith_ops)
 
-    steady_anchor = find_steady_anchor_cycles(exec_events, compiled_ii, args.ii_gap_slack, args.steady_run)
+    steady_anchor = find_steady_anchor_cycles(exec_events, compiled_ii, args.ii_gap_slack, args.steady_run, arith_ops)
     auto_start = find_exec_start(exec_events, steady_anchor, compiled_ii, args.lookback_ii_multiple)
     auto_end = find_exec_end(exec_events)
 
@@ -230,6 +235,7 @@ def main() -> None:
         "trace": os.path.abspath(args.trace),
         "kernel": kernel,
         "compiled_ii": compiled_ii,
+        "arith_ops": sorted(arith_ops),
         "steady_anchor": steady_anchor,
         "auto_window": {"start": auto_start, "end": auto_end, "span_exclusive": auto_end - auto_start, "span_inclusive": auto_end - auto_start + 1},
         "final_window": {"start": start, "end": end, "span_exclusive": end - start, "span_inclusive": end - start + 1},
