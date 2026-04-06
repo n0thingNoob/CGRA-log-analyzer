@@ -2,10 +2,10 @@
 
 ## 背景
 
-VectorCGRA 项目中有两套仿真器：
+两套simulations：
 
-- **Behavioral 仿真器**：事件驱动，按照编译器给出的理论 II（Initiation Interval）模拟每个操作的触发时刻，时间单位为"behavioral time"。GEMV 理论 II = 11，GEMM 理论 II = 17。
-- **RTL 仿真器**：时序精确，包含真实的 FU 流水线深度与路由延迟，实际 II 更大。GEMV 实测 II = 14，GEMM 实测 II = 25。
+- **Zeonica**：事件驱动，按照编译器给出的理论 II（Initiation Interval）模拟每个操作的触发时刻，时间单位为"behavioral time"。GEMV 理论 II = 11，GEMM 理论 II = 17。
+- **VectorCGRA**：时序精确，包含真实的 FU 流水线深度与路由延迟，实际 II 更大。GEMV 实测 II = 14，GEMM 实测 II = 25。
 
 两套仿真器的周期数不能直接比较，需要先对齐。`align_cycles.py` 实现了这一对齐过程，并输出可用于论文的对比表格。
 
