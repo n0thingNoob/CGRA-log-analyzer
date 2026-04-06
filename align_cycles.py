@@ -34,6 +34,11 @@ def parse_args() -> argparse.Namespace:
         default="MUL,STORE,ADD",
         help="Comma-separated behavioral OpCodes to align (default: MUL,STORE,ADD)",
     )
+    p.add_argument(
+        "--no-trim",
+        action="store_true",
+        help="Disable exec-window trimming (include configuration and warmup events)",
+    )
     return p.parse_args()
 
 
@@ -192,6 +197,71 @@ def _steady_interval_ratio(
     return _median(ratios)
 
 
+def _steady_start_idx(rtl_cycles: List[int]) -> int:
+    """Return the first index whose preceding RTL interval is 'normal' (≤1.5× median).
+
+    Events before this index are in the warmup phase where the pipeline is still
+    filling and the RTL interval is anomalously large.
+    """
+    n = len(rtl_cycles)
+    if n < 2:
+        return 0
+    intervals = [rtl_cycles[i] - rtl_cycles[i - 1] for i in range(1, n)]
+    med = _median(intervals)
+    threshold = 1.5 * med
+    warmup_end = 0
+    for i, iv in enumerate(intervals):
+        if iv > threshold:
+            warmup_end = i + 1  # event reached via anomalous gap
+        else:
+            break
+    return warmup_end
+
+
+# ---------------------------------------------------------------------------
+# Exec-window trimming
+# ---------------------------------------------------------------------------
+
+def _exec_window(mul_times: List[int], trailing_slack: bool) -> Optional[Tuple[int, int]]:
+    """Return [start, end] window derived from MUL anchor times.
+
+    start = first MUL time (everything before = configuration / warmup).
+    end   = last MUL time + last interval if trailing_slack, else last MUL time
+            (everything after = drain / cooldown phase).
+    """
+    if len(mul_times) < 2:
+        return None
+    last_interval = mul_times[-1] - mul_times[-2]
+    end = mul_times[-1] + last_interval if trailing_slack else mul_times[-1]
+    return mul_times[0], end
+
+
+def trim_events(
+    behav_events: Dict[str, List[int]],
+    rtl_events: Dict[str, List[int]],
+) -> Tuple[Dict[str, List[int]], Dict[str, List[int]], Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+    """Filter events to exec windows derived from MUL anchors.
+
+    Behavioral window: [first_mul_beh, last_mul_beh + last_beh_interval]
+      → keeps STORE/ADD that complete slightly after the last MUL.
+    RTL window:        [first_mul_rtl, last_mul_rtl]
+      → excludes pre-MUL warmup and post-MUL drain (zero-payload) events.
+    """
+    beh_muls = behav_events.get("MUL", [])
+    rtl_muls = rtl_events.get("(*)", [])
+
+    beh_win = _exec_window(beh_muls, trailing_slack=True)
+    rtl_win = _exec_window(rtl_muls, trailing_slack=False)
+
+    def _filter(events: Dict[str, List[int]], win: Optional[Tuple[int, int]]) -> Dict[str, List[int]]:
+        if win is None:
+            return events
+        lo, hi = win
+        return {op: [t for t in times if lo <= t <= hi] for op, times in events.items()}
+
+    return _filter(behav_events, beh_win), _filter(rtl_events, rtl_win), beh_win, rtl_win
+
+
 # ---------------------------------------------------------------------------
 # Per-op alignment
 # ---------------------------------------------------------------------------
@@ -232,10 +302,16 @@ def align_op(
 
     steady_ratio = _steady_interval_ratio(behav_times[:n], rtl_cycles[:n], n)
 
-    slope, intercept, r_squared = _linear_fit(
-        [float(t) for t in behav_times[:n]],
-        [float(c) for c in rtl_cycles[:n]],
-    )
+    xs_all = [float(t) for t in behav_times[:n]]
+    ys_all = [float(c) for c in rtl_cycles[:n]]
+    slope, intercept, r_squared = _linear_fit(xs_all, ys_all)
+
+    # Steady-state fit: skip warmup events so the slope/intercept reflect only
+    # the stable execution phase (used for rtl_corrected in the output table).
+    ss_start = _steady_start_idx(rtl_cycles[:n])
+    xs_ss = xs_all[ss_start:]
+    ys_ss = ys_all[ss_start:]
+    ss_slope, ss_intercept, ss_r2 = _linear_fit(xs_ss, ys_ss) if len(xs_ss) >= 2 else (slope, intercept, r_squared)
 
     summary = {
         "behavioral_op": behavioral_op,
@@ -243,12 +319,19 @@ def align_op(
         "behavioral_count": len(behav_times),
         "rtl_count": len(rtl_cycles),
         "aligned_count": n,
+        "warmup_events_skipped": ss_start,
         "overall_ratio": round(overall_ratio, 6) if overall_ratio is not None else None,
         "steady_state_interval_ratio": round(steady_ratio, 6) if steady_ratio is not None else None,
         "linear_fit": {
             "slope": round(slope, 6),
             "intercept": round(intercept, 6),
             "r_squared": round(r_squared, 6),
+        },
+        "steady_state_linear_fit": {
+            "slope": round(ss_slope, 6),
+            "intercept": round(ss_intercept, 6),
+            "r_squared": round(ss_r2, 6),
+            "fit_from_idx": ss_start,
         },
     }
     return anchors, summary
@@ -277,7 +360,12 @@ def main() -> None:
     print("Extracting RTL events …")
     rtl_events = extract_rtl_events(args.trace, target_rtl_ops)
 
-    print("\nEvent counts:")
+    if not args.no_trim:
+        behav_events, rtl_events, beh_win, rtl_win = trim_events(behav_events, rtl_events)
+        print(f"\nExec window (behavioral) : {beh_win}")
+        print(f"Exec window (RTL)        : {rtl_win}")
+
+    print("\nEvent counts (after trimming):" if not args.no_trim else "\nEvent counts:")
     for bop in target_behav_ops:
         rop = BEHAVIORAL_TO_RTL.get(bop, "?")
         print(f"  {bop:6s} ({rop:4s})  behavioral={len(behav_events.get(bop, []))}  RTL={len(rtl_events.get(rop, []))}")
@@ -309,9 +397,31 @@ def main() -> None:
         )
 
     # Write anchors CSV
+    # Add rtl_corrected = (rtl_cycle - intercept) / slope using primary op's
+    # STEADY-STATE linear fit (warmup events excluded from fit), so that
+    # rtl_corrected ≈ behavioral_time for clean anchor ops.
+    primary_op = "MUL" if "MUL" in op_summaries else (next(iter(op_summaries), None))
+    corr_slope = corr_intercept = None
+    if primary_op and primary_op in op_summaries:
+        lf = op_summaries[primary_op]["steady_state_linear_fit"]
+        corr_slope, corr_intercept = lf["slope"], lf["intercept"]
+
     anchors_path = os.path.join(args.output_dir, f"alignment_anchors_{kernel}.csv")
     if all_anchors:
-        fieldnames = ["op", "idx", "behavioral_time", "rtl_cycle", "ratio", "interval_ratio"]
+        for row in all_anchors:
+            if corr_slope:
+                rc = (row["rtl_cycle"] - corr_intercept) / corr_slope
+                row["rtl_corrected"] = round(rc, 2)
+                row["correction_error"] = round(rc - row["behavioral_time"], 2)
+            else:
+                row["rtl_corrected"] = None
+                row["correction_error"] = None
+
+        fieldnames = [
+            "op", "idx", "behavioral_time", "rtl_cycle",
+            "rtl_corrected", "correction_error",
+            "ratio", "interval_ratio",
+        ]
         with open(anchors_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()

@@ -9,12 +9,19 @@
       "behavioral_count": 16,
       "rtl_count": 16,
       "aligned_count": 16,
+      "warmup_events_skipped": 1,
       "overall_ratio": 4.968078,
       "steady_state_interval_ratio": 1.272727,
       "linear_fit": {
         "slope": 1.358155,
         "intercept": 170.649465,
         "r_squared": 0.9789
+      },
+      "steady_state_linear_fit": {
+        "slope": 1.265909,
+        "intercept": 181.872727,
+        "r_squared": 0.999963,
+        "fit_from_idx": 1
       }
     },
     "STORE": {
@@ -23,12 +30,19 @@
       "behavioral_count": 4,
       "rtl_count": 15,
       "aligned_count": 4,
+      "warmup_events_skipped": 0,
       "overall_ratio": 2.472538,
       "steady_state_interval_ratio": 0.318182,
       "linear_fit": {
         "slope": 0.318182,
         "intercept": 182.0,
         "r_squared": 1.0
+      },
+      "steady_state_linear_fit": {
+        "slope": 0.318182,
+        "intercept": 182.0,
+        "r_squared": 1.0,
+        "fit_from_idx": 0
       }
     },
     "ADD": {
@@ -37,12 +51,19 @@
       "behavioral_count": 35,
       "rtl_count": 30,
       "aligned_count": 30,
+      "warmup_events_skipped": 2,
       "overall_ratio": 5.05256,
       "steady_state_interval_ratio": 1.333333,
       "linear_fit": {
         "slope": 1.472201,
         "intercept": 175.720277,
         "r_squared": 0.996459
+      },
+      "steady_state_linear_fit": {
+        "slope": 1.439276,
+        "intercept": 179.222253,
+        "r_squared": 0.998732,
+        "fit_from_idx": 2
       }
     }
   },
