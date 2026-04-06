@@ -1,0 +1,56 @@
+{
+  "kernel": "gemm",
+  "behavioral_log": "gemm.json.log",
+  "rtl_trace": "trace_gemm_4x4_Mesh.jsonl",
+  "ops": {
+    "MUL": {
+      "behavioral_op": "MUL",
+      "rtl_op": "(*)",
+      "behavioral_count": 64,
+      "rtl_count": 65,
+      "aligned_count": 64,
+      "overall_ratio": 3.077118,
+      "steady_state_interval_ratio": 1.470588,
+      "linear_fit": {
+        "slope": 1.470503,
+        "intercept": 375.591997,
+        "r_squared": 1.0
+      }
+    },
+    "STORE": {
+      "behavioral_op": "STORE",
+      "rtl_op": "(st)",
+      "behavioral_count": 64,
+      "rtl_count": 65,
+      "aligned_count": 64,
+      "overall_ratio": 2.99296,
+      "steady_state_interval_ratio": 1.470588,
+      "linear_fit": {
+        "slope": 1.470588,
+        "intercept": 375.117647,
+        "r_squared": 1.0
+      }
+    },
+    "ADD": {
+      "behavioral_op": "ADD",
+      "rtl_op": "(+)",
+      "behavioral_count": 148,
+      "rtl_count": 65,
+      "aligned_count": 65,
+      "overall_ratio": 6.520053,
+      "steady_state_interval_ratio": 4.166667,
+      "linear_fit": {
+        "slope": 3.385463,
+        "intercept": 356.23842,
+        "r_squared": 0.999534
+      }
+    }
+  },
+  "overall_ratio": 3.077118,
+  "steady_state_interval_ratio": 1.470588,
+  "linear_fit": {
+    "slope": 1.470503,
+    "intercept": 375.591997,
+    "r_squared": 1.0
+  }
+}
