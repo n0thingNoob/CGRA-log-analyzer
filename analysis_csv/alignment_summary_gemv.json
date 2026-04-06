@@ -48,22 +48,22 @@
     "ADD": {
       "behavioral_op": "ADD",
       "rtl_op": "(+)",
-      "behavioral_count": 16,
-      "rtl_count": 30,
-      "aligned_count": 16,
-      "warmup_events_skipped": 2,
-      "overall_ratio": 4.456121,
-      "steady_state_interval_ratio": 0.727273,
+      "behavioral_count": 15,
+      "rtl_count": 15,
+      "aligned_count": 15,
+      "warmup_events_skipped": 1,
+      "overall_ratio": 4.322625,
+      "steady_state_interval_ratio": 1.272727,
       "linear_fit": {
-        "slope": 0.691444,
-        "intercept": 181.982888,
-        "r_squared": 0.984671
+        "slope": 1.336364,
+        "intercept": 175.187879,
+        "r_squared": 0.990269
       },
       "steady_state_linear_fit": {
-        "slope": 0.637762,
-        "intercept": 188.629371,
-        "r_squared": 0.999692,
-        "fit_from_idx": 2
+        "slope": 1.272727,
+        "intercept": 182.909091,
+        "r_squared": 1.0,
+        "fit_from_idx": 1
       }
     }
   },
