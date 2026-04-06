@@ -27,19 +27,19 @@
     "STORE": {
       "behavioral_op": "STORE",
       "rtl_op": "(st)",
-      "behavioral_count": 4,
+      "behavioral_count": 16,
       "rtl_count": 15,
-      "aligned_count": 4,
+      "aligned_count": 15,
       "warmup_events_skipped": 0,
-      "overall_ratio": 2.472538,
-      "steady_state_interval_ratio": 0.318182,
+      "overall_ratio": 4.932835,
+      "steady_state_interval_ratio": 1.272727,
       "linear_fit": {
-        "slope": 0.318182,
+        "slope": 1.272727,
         "intercept": 182.0,
         "r_squared": 1.0
       },
       "steady_state_linear_fit": {
-        "slope": 0.318182,
+        "slope": 1.272727,
         "intercept": 182.0,
         "r_squared": 1.0,
         "fit_from_idx": 0

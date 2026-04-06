@@ -22,6 +22,12 @@ BEHAVIORAL_TO_RTL: Dict[str, str] = {
     "LOAD": "(ld)",
 }
 
+# Ops where ALL events are included regardless of predicate.
+# Memory ops (STORE/LOAD) fire every II in both behavioral and RTL; the predicate
+# controls whether the access is committed, but the tile executes every iteration.
+# Including all events aligns the execution cadence correctly.
+_INCLUDE_ALL_PRED_OPS = {"STORE", "LOAD"}
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Align behavioral and RTL cycle counts.")
@@ -95,9 +101,9 @@ def extract_behavioral_events(
                 continue
             if rec.get("msg") != "Inst":
                 continue
-            if not _behavioral_pred_true(rec):
-                continue
             opcode = rec.get("OpCode", "")
+            if opcode not in _INCLUDE_ALL_PRED_OPS and not _behavioral_pred_true(rec):
+                continue
             if opcode not in by_tile:
                 continue
             key: Tuple = (rec.get("X"), rec.get("Y"), rec.get("ID"))
