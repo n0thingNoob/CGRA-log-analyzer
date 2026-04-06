@@ -246,6 +246,9 @@ def build_coarse_stages(log_name: str, cycles: list[CycleStats]) -> list[CoarseS
     if trunc_start is None:
         trunc_start = first_eff
 
+    store_cycles = [c.cycle for c in cycles if c.has_store and c.has_effective_data]
+    last_store_cycle = store_cycles[-1] if store_cycles else last_eff
+
     trunc_end = None
     trunc_cycles = 0
     if limit is not None:
@@ -265,6 +268,14 @@ def build_coarse_stages(log_name: str, cycles: list[CycleStats]) -> list[CoarseS
         CoarseStage(log_name, "full_window_cycles", first_eff, last_eff, full_cycles, "First effective-data cycle to last effective-data cycle"),
         CoarseStage(log_name, "warmup_and_configuration_cycles", 0, max(0, trunc_start - 1), warmup_cfg_cycles, "Cycles before truncated execution window"),
         CoarseStage(log_name, "truncated_execution_cycles", trunc_start, trunc_end, trunc_cycles, "Main execution window after truncation"),
+        CoarseStage(
+            log_name,
+            "execution_until_last_store_cycles",
+            trunc_start,
+            last_store_cycle,
+            max(0, last_store_cycle - trunc_start + 1),
+            "Execution window extended to last effective store",
+        ),
         CoarseStage(log_name, "tail_cycles", trunc_end + 1, last_eff, tail_cycles, "Cycles after truncated execution window"),
     ]
 

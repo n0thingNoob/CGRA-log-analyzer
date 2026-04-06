@@ -24,7 +24,9 @@ python analyze_cgra_stage_cycles.py trace_gemv_4x4_Mesh.jsonl trace_gemm_4x4_Mes
    - 截断执行窗口开始之前的 warm-up/configuration 周期
 3. `truncated_execution_cycles`
    - 截断得到的主执行窗口周期
-4. `tail_cycles`
+4. `execution_until_last_store_cycles`
+   - 从截断起点延伸到最后一次有效 store 的执行窗口（保留终点写回）
+5. `tail_cycles`
    - 截断执行窗口之后的收尾周期
 
 当前内置截断参数（按现有两份 trace 标定）：
