@@ -21,7 +21,7 @@
       "behavioral_op": "STORE",
       "rtl_op": "(st)",
       "behavioral_count": 64,
-      "rtl_count": 65,
+      "rtl_count": 64,
       "aligned_count": 64,
       "overall_ratio": 2.99296,
       "steady_state_interval_ratio": 1.470588,
@@ -34,15 +34,15 @@
     "ADD": {
       "behavioral_op": "ADD",
       "rtl_op": "(+)",
-      "behavioral_count": 148,
-      "rtl_count": 65,
-      "aligned_count": 65,
-      "overall_ratio": 6.520053,
+      "behavioral_count": 147,
+      "rtl_count": 64,
+      "aligned_count": 64,
+      "overall_ratio": 5.741542,
       "steady_state_interval_ratio": 4.166667,
       "linear_fit": {
-        "slope": 3.385463,
-        "intercept": 356.23842,
-        "r_squared": 0.999534
+        "slope": 3.389244,
+        "intercept": 329.99048,
+        "r_squared": 0.999538
       }
     }
   },
