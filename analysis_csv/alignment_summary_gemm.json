@@ -48,21 +48,21 @@
     "ADD": {
       "behavioral_op": "ADD",
       "rtl_op": "(+)",
-      "behavioral_count": 147,
+      "behavioral_count": 64,
       "rtl_count": 64,
       "aligned_count": 64,
       "warmup_events_skipped": 0,
-      "overall_ratio": 5.741542,
-      "steady_state_interval_ratio": 4.166667,
+      "overall_ratio": 3.020126,
+      "steady_state_interval_ratio": 1.470588,
       "linear_fit": {
-        "slope": 3.389244,
-        "intercept": 329.99048,
-        "r_squared": 0.999538
+        "slope": 1.470588,
+        "intercept": 375.588235,
+        "r_squared": 1.0
       },
       "steady_state_linear_fit": {
-        "slope": 3.389244,
-        "intercept": 329.99048,
-        "r_squared": 0.999538,
+        "slope": 1.470588,
+        "intercept": 375.588235,
+        "r_squared": 1.0,
         "fit_from_idx": 0
       }
     }

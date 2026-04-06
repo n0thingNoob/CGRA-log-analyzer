@@ -12,7 +12,7 @@ import csv
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 # Map behavioral OpCode -> RTL operation symbol
 BEHAVIORAL_TO_RTL: Dict[str, str] = {
@@ -70,9 +70,20 @@ def _behavioral_pred_true(rec: dict) -> bool:
     return False
 
 
-def extract_behavioral_events(log_path: str, target_ops: List[str]) -> Dict[str, List[int]]:
-    """Return sorted Time lists for Inst events with given OpCodes and Pred=True."""
-    result: Dict[str, List[int]] = {op: [] for op in target_ops}
+def extract_behavioral_events(
+    log_path: str, target_ops: List[str]
+) -> Tuple[Dict[str, List[int]], Dict[str, Dict[Tuple, List[int]]]]:
+    """Return (merged_events, by_tile) for behavioral Inst events with Pred=True.
+
+    merged_events: all times per OpCode (all tiles combined).
+    by_tile:       times per OpCode → per-(X,Y,ID) tile key.
+
+    Keeping the per-tile breakdown lets callers later select the single tile
+    group whose count best matches the RTL event count (after trimming), so
+    that multi-purpose ops like ADD aren't misaligned by mixing different
+    instruction instances.
+    """
+    by_tile: Dict[str, Dict[Tuple, List[int]]] = {op: {} for op in target_ops}
     with open(log_path, "r", encoding="utf-8") as f:
         for raw in f:
             raw = raw.strip()
@@ -87,10 +98,67 @@ def extract_behavioral_events(log_path: str, target_ops: List[str]) -> Dict[str,
             if not _behavioral_pred_true(rec):
                 continue
             opcode = rec.get("OpCode", "")
-            if opcode in result:
-                result[opcode].append(round(rec["Time"]))
-    for op in result:
-        result[op].sort()
+            if opcode not in by_tile:
+                continue
+            key: Tuple = (rec.get("X"), rec.get("Y"), rec.get("ID"))
+            t = round(rec["Time"])
+            by_tile[opcode].setdefault(key, []).append(t)
+
+    merged: Dict[str, List[int]] = {}
+    for op, groups in by_tile.items():
+        all_times: List[int] = []
+        for times in groups.values():
+            all_times.extend(times)
+        merged[op] = sorted(all_times)
+
+    return merged, by_tile
+
+
+def select_best_tile_group(
+    by_tile: Dict[str, Dict[Tuple, List[int]]],
+    rtl_events: Dict[str, List[int]],
+    target_behav_ops: List[str],
+    beh_window: Optional[Tuple[int, int]],
+) -> Dict[str, List[int]]:
+    """For each op, pick the tile group whose post-trim count is closest to
+    the post-trim RTL count.  Falls back to merging all groups when only one
+    group exists.
+    """
+    result: Dict[str, List[int]] = {}
+    for op in target_behav_ops:
+        groups = by_tile.get(op, {})
+        rtl_sym = BEHAVIORAL_TO_RTL.get(op)
+
+        if len(groups) <= 1 or rtl_sym is None:
+            # Nothing to choose: merge all
+            all_t: List[int] = []
+            for times in groups.values():
+                all_t.extend(times)
+            result[op] = sorted(all_t)
+            continue
+
+        # Apply the same behavioral window to each tile group
+        def _trim(times: List[int]) -> List[int]:
+            if beh_window is None:
+                return sorted(times)
+            lo, hi = beh_window
+            return [t for t in times if lo <= t <= hi]
+
+        trimmed_groups = {k: _trim(v) for k, v in groups.items()}
+        rtl_count = len(rtl_events.get(rtl_sym, []))
+
+        best_key = min(
+            trimmed_groups.keys(),
+            key=lambda k: (abs(len(trimmed_groups[k]) - rtl_count), -len(trimmed_groups[k])),
+        )
+        result[op] = sorted(trimmed_groups[best_key])
+        x, y, id_ = best_key
+        print(
+            f"  {op}: selected tile(X={x},Y={y},ID={id_}) "
+            f"[{len(result[op])} events, post-trim] "
+            f"closest to RTL count {rtl_count}"
+        )
+
     return result
 
 
@@ -355,15 +423,20 @@ def main() -> None:
     print(f"Aligning ops : {target_behav_ops}")
 
     print("\nExtracting behavioral events …")
-    behav_events = extract_behavioral_events(args.behavioral, target_behav_ops)
+    behav_events, by_tile = extract_behavioral_events(args.behavioral, target_behav_ops)
 
     print("Extracting RTL events …")
     rtl_events = extract_rtl_events(args.trace, target_rtl_ops)
 
+    beh_win: Optional[Tuple[int, int]] = None
+    rtl_win: Optional[Tuple[int, int]] = None
     if not args.no_trim:
         behav_events, rtl_events, beh_win, rtl_win = trim_events(behav_events, rtl_events)
         print(f"\nExec window (behavioral) : {beh_win}")
         print(f"Exec window (RTL)        : {rtl_win}")
+
+    print("\nSelecting best tile group per op …")
+    behav_events = select_best_tile_group(by_tile, rtl_events, target_behav_ops, beh_win)
 
     print("\nEvent counts (after trimming):" if not args.no_trim else "\nEvent counts:")
     for bop in target_behav_ops:
