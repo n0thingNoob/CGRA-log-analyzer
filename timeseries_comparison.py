@@ -126,7 +126,14 @@ def stall_info(tile, row, col):
                 else:
                     causes.append(f"FU[{j}]wait {src_lbl}")
 
-    return bool(causes), causes
+    # A tile whose FU is actively completing a computation this cycle is
+    # "executing", even if secondary routing ports are simultaneously stalled
+    # (e.g. an unused FU input whose rdy=0 causes backpressure on its source).
+    # Return that flag so the caller can colour executing cycles blue.
+    fu_executing = any(o["val"] == 1 and o["rdy"] == 1
+                       for o in tile["fu"]["outputs"])
+
+    return bool(causes), causes, fu_executing
 
 
 # ── routing-NAH detection ─────────────────────────────────────────────────────
@@ -150,12 +157,19 @@ with open("trace_gemv_4x4_Mesh.jsonl") as f:
         for tile in record["tiles"]:
             row, col  = tile["row"], tile["col"]
             op        = tile["fu"]["operation_symbol"]
-            stalled, causes = stall_info(tile, row, col)
+            stalled, causes, fu_executing = stall_info(tile, row, col)
             routing   = is_routing_nah(tile)
 
-            if stalled:
+            if stalled and not fu_executing:
+                # Genuinely blocked: stall signal present AND FU produced nothing
                 bg    = STALL_COLOR
                 label = op + "\n" + "\n".join(causes)
+            elif stalled and fu_executing:
+                # FU completed output this cycle despite secondary routing stalls
+                # (e.g. an unused FU input port backed up by its source).
+                # Show as executing but annotate the secondary blockage.
+                bg    = OP_COLOR
+                label = op + "\n[blk:" + " ".join(causes) + "]"
             elif op == "(NAH)":
                 bg    = NAH_ROUTING if routing else NAH_IDLE
                 label = op
@@ -303,9 +317,9 @@ legend_patches = [
     mpatches.Patch(color=NAH_IDLE,    label="NAH – idle (no data)"),
     mpatches.Patch(color=NAH_ROUTING, label="NAH – routing data through xbar"),
     mpatches.Patch(color=STALL_COLOR,
-                   label="STALL  ↓S/↑N/←W/→E = direction blocked\n"
-                         "       →(r,c) = blocking neighbour\n"
-                         "       wait = waiting for upstream input"),
+                   label="STALL (FU not producing + blocked port)\n"
+                         "  blue+[blk:] = executing but secondary port stalled\n"
+                         "  ↓S/↑N/←W/→E = blocked direction, (r,c) = neighbour"),
 ]
 fig.legend(
     handles=legend_patches,
